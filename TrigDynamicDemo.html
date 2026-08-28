@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sin / cos / tan —— 弧度动态演示</title>
+<style>
+  :root {
+    --sin: #1969dc; --cos: #cd2d3c; --tan: #eb8714;
+    --bg: #f5f6f8; --panel: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: #333;
+    font-family: system-ui, "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    min-height: 100vh; padding: 14px;
+  }
+  h1 { font-size: 18px; margin: 0 0 10px; }
+  #info {
+    font-family: Consolas, Menlo, monospace; font-weight: bold; font-size: 15px;
+    background: var(--panel); border: 1px solid #e2e4e8; border-radius: 8px;
+    padding: 8px 18px; margin-bottom: 10px; white-space: pre; text-align: center;
+    min-width: 560px;
+  }
+  #stage { display: flex; gap: 10px; width: 100%; max-width: 1150px; }
+  .card {
+    background: var(--panel); border: 1px solid #e2e4e8; border-radius: 10px;
+    padding: 6px; flex: 0 0 40%;
+  }
+  .card:last-child { flex: 1; }
+  canvas { display: block; width: 100%; height: auto; }
+  #ctrl {
+    display: flex; gap: 14px; align-items: center; margin-top: 10px;
+    background: var(--panel); border: 1px solid #e2e4e8; border-radius: 8px;
+    padding: 8px 18px; flex-wrap: wrap; justify-content: center;
+  }
+  #ctrl label { font-size: 14px; }
+  button {
+    border: 1px solid #c8ccd4; background: #fff; border-radius: 6px;
+    padding: 5px 18px; font-size: 14px; cursor: pointer;
+  }
+  button:hover { background: #f0f2f5; }
+  input[type=range] { width: 200px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<h1>sin / cos / tan —— 弧度动态演示</h1>
+<div id="info"></div>
+
+<div id="stage">
+  <div class="card"><canvas id="circle"></canvas></div>
+  <div class="card"><canvas id="graph"></canvas></div>
+</div>
+
+<div id="ctrl">
+  <label>速度 <input type="range" id="speed" min="0.2" max="6" step="0.1" value="1.2"> <span id="speedVal">1.2 rad/s</span></label>
+  <button id="playBtn">暂停</button>
+  <button id="resetBtn">重置</button>
+</div>
+
+<script>
+'use strict';
+const TWO_PI = 2 * Math.PI;
+const SIN_C = '#1969dc', COS_C = '#cd2d3c', TAN_C = '#eb8714';
+const Y_MAX = 2.4, STEP = 0.008;
+
+let theta = 0, speed = 1.2, running = true, lastTs = performance.now();
+
+const circleCv = document.getElementById('circle');
+const graphCv  = document.getElementById('graph');
+const info     = document.getElementById('info');
+const DPR = window.devicePixelRatio || 1;
+
+// 按设备像素比设置画布尺寸，保证清晰
+function setupCanvas(cv, wCss) {
+  const hCss = 440;
+  cv.width = wCss * DPR; cv.height = hCss * DPR;
+  cv.style.height = hCss + 'px';
+  const g = cv.getContext('2d');
+  g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  return { g, w: wCss, h: hCss };
+}
+
+let circle, graph;
+function resize() {
+  const cw = circleCv.parentElement.clientWidth - 12;
+  const gw = graphCv.parentElement.clientWidth - 12;
+  circle = setupCanvas(circleCv, Math.max(cw, 260));
+  graph  = setupCanvas(graphCv,  Math.max(gw, 320));
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ==================== 左侧：单位圆 ==================== */
+function drawCircle() {
+  const { g, w, h } = circle;
+  g.clearRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 46;
+  const px = cx + R * Math.cos(theta), py = cy - R * Math.sin(theta);
+  const t = Math.tan(theta);
+  const showTan = Math.abs(Math.cos(theta)) > 0.02 && Math.abs(t) < 3.5;
+
+  // 坐标轴
+  g.strokeStyle = '#d7d7d7'; g.lineWidth = 1;
+  line(g, cx - R - 16, cy, cx + R + 16, cy);
+  line(g, cx, cy - R - 16, cx, cy + R + 16);
+  g.fillStyle = '#888'; g.font = '12px system-ui';
+  g.fillText('0', cx - 10, cy + 15);
+  g.fillText('1', cx + R - 4, cy + 15);
+  g.fillText('π/2', cx + 5, cy - R - 6);
+
+  // 单位圆
+  g.strokeStyle = '#787882'; g.lineWidth = 1.6;
+  g.beginPath(); g.arc(cx, cy, R, 0, TWO_PI); g.stroke();
+
+  // x=1 切线（tan 构造位置）
+  g.strokeStyle = 'rgba(235,135,20,.45)'; g.setLineDash([5, 5]);
+  line(g, cx + R, cy - R, cx + R, cy + R);
+  g.setLineDash([]);
+
+  // cosθ 水平投影
+  g.strokeStyle = COS_C; g.lineWidth = 2.4;
+  line(g, cx, cy, px, cy);
+  // sinθ 竖直投影
+  g.strokeStyle = SIN_C;
+  line(g, px, cy, px, py);
+  // tanθ：半径延长线与切线交点
+  if (showTan) {
+    const ex = cx + R, ey = cy - R * t;
+    g.strokeStyle = TAN_C;
+    line(g, px, py, ex, ey);
+    dot(g, ex, ey, 4, TAN_C);
+  }
+
+  // 角度弧
+  g.strokeStyle = '#5a5a5a'; g.lineWidth = 1.4;
+  g.beginPath(); g.arc(cx, cy, 30, 0, -theta, true); g.stroke();
+
+  // 半径
+  g.strokeStyle = '#000'; g.lineWidth = 2;
+  line(g, cx, cy, px, py);
+
+  // 动点及投影点
+  dot(g, px, py, 6, '#000');
+  dot(g, px, cy, 4, COS_C);
+  dot(g, px, py, 4, SIN_C);
+
+  // 标签
+  g.font = 'bold 13px system-ui';
+  g.fillStyle = COS_C; g.fillText('cosθ = x', (cx + px) / 2 - 34, cy - 8);
+  g.fillStyle = SIN_C; g.fillText('sinθ = y', px + 8, (cy + py) / 2 + 4);
+  if (showTan) {
+    g.fillStyle = TAN_C;
+    g.fillText('tanθ', cx + R - 26, cy - R * t + (t > 0 ? -8 : 16));
+  }
+
+  // 图例
+  g.font = '13px system-ui';
+  legend(g, 12, h - 18, SIN_C, 'sinθ');
+  legend(g, 84, h - 18, COS_C, 'cosθ');
+  legend(g, 156, h - 18, TAN_C, 'tanθ');
+}
+
+/* ==================== 右侧：函数曲线 ==================== */
+function X(th) { return 34 + (graph.w - 14 - 34) * th / TWO_PI; }
+function Y(v)  { return (graph.h - 30) / 2 + 14 - v * (graph.h - 44) / 2 / Y_MAX; }
+
+function drawGraph() {
+  const { g, w, h } = graph;
+  g.clearRect(0, 0, w, h);
+  g.font = '12px system-ui';
+
+  // 横网格 v = -2..2
+  for (let v = -2; v <= 2; v++) {
+    g.strokeStyle = v === 0 ? '#a0a0a0' : '#e4e4e4';
+    g.lineWidth = v === 0 ? 1.4 : 1;
+    line(g, 34, Y(v), w - 14, Y(v));
+    if (v !== 0) { g.fillStyle = '#888'; g.fillText(String(v), 14, Y(v) + 4); }
+  }
+
+  // 竖网格 + 渐近线
+  const marks = ['0', 'π/2', 'π', '3π/2', '2π'];
+  for (let k = 0; k <= 4; k++) {
+    const asym = (k === 1 || k === 3), x = X(k * Math.PI / 2);
+    g.strokeStyle = asym ? '#c8c8c8' : '#e4e4e4'; g.lineWidth = 1;
+    if (asym) g.setLineDash([5, 5]);
+    line(g, x, 14, x, h - 30);
+    g.setLineDash([]);
+    g.fillStyle = '#888';
+    g.fillText(marks[k], x - 12, h - 14);
+  }
+  g.fillText('θ（弧度）', w - 88, h - 14);
+
+  // 完整周期淡色底图（sin/cos）
+  plot(g, Math.sin, 0, TWO_PI, 'rgba(25,105,220,.25)', 1.2);
+  plot(g, Math.cos, 0, TWO_PI, 'rgba(205,45,60,.25)', 1.2);
+
+  // 已扫过部分（粗线）
+  if (theta > 0.002) {
+    plot(g, Math.sin, 0, theta, SIN_C, 2.8);
+    plot(g, Math.cos, 0, theta, COS_C, 2.8);
+    plot(g, Math.tan, 0, theta, TAN_C, 2.8);
+  }
+
+  // 当前 θ 扫描线
+  g.strokeStyle = 'rgba(120,120,120,.6)'; g.lineWidth = 1; g.setLineDash([4, 4]);
+  line(g, X(theta), 14, X(theta), h - 30);
+  g.setLineDash([]);
+
+  // 曲线上当前位置的点
+  const tv = Math.tan(theta);
+  dot(g, X(theta), Y(Math.sin(theta)), 5, SIN_C);
+  dot(g, X(theta), Y(Math.cos(theta)), 5, COS_C);
+  if (Math.abs(tv) <= Y_MAX) dot(g, X(theta), Y(tv), 5, TAN_C);
+
+  // 图例
+  g.font = 'bold 13px system-ui';
+  const lx = w - 210;
+  g.fillStyle = SIN_C; g.fillText('sinθ', lx, 26);
+  g.fillStyle = COS_C; g.fillText('cosθ', lx + 50, 26);
+  g.fillStyle = TAN_C; g.fillText('tanθ', lx + 100, 26);
+}
+
+function plot(g, fn, from, to, color, width) {
+  if (to <= from) return;
+  g.strokeStyle = color; g.lineWidth = width;
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  g.beginPath();
+  let open = false;
+  for (let th = from; th <= to; th += STEP) {
+    const v = fn(th);
+    if (!isFinite(v) || Math.abs(v) > Y_MAX) { open = false; continue; }  // tan 渐近线断开
+    const x = X(th), y = Y(v);
+    if (!open) { g.moveTo(x, y); open = true; } else g.lineTo(x, y);
+  }
+  g.stroke();
+}
+
+/* ==================== 工具函数 ==================== */
+function line(g, x1, y1, x2, y2) {
+  g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+}
+function dot(g, x, y, r, color) {
+  g.fillStyle = color;
+  g.beginPath(); g.arc(x, y, r, 0, TWO_PI); g.fill();
+}
+function legend(g, x, y, c, text) {
+  g.fillStyle = c; g.fillRect(x, y - 11, 11, 11);
+  g.fillStyle = '#444'; g.fillText(text, x + 15, y);
+}
+
+function updateInfo() {
+  const s = Math.sin(theta), c = Math.cos(theta), t = Math.tan(theta);
+  const tanStr = Math.abs(c) < 0.02 ? (t > 0 ? ' → +∞' : ' → −∞')
+                                     : t.toFixed(3).padStart(6);
+  const sign = v => (v >= 0 ? '+' : '') + v.toFixed(3);
+  info.textContent =
+    `θ = ${theta.toFixed(3).padStart(5)} rad (${(theta * 180 / Math.PI).toFixed(1).padStart(5)}°)` +
+    `   sinθ = ${sign(s)}   cosθ = ${sign(c)}   tanθ = ${tanStr}`;
+}
+
+/* ==================== 控制 ==================== */
+const playBtn = document.getElementById('playBtn');
+playBtn.addEventListener('click', () => {
+  running = !running;
+  playBtn.textContent = running ? '暂停' : '继续';
+  lastTs = performance.now();
+});
+document.getElementById('resetBtn').addEventListener('click', () => { theta = 0; });
+document.getElementById('speed').addEventListener('input', e => {
+  speed = +e.target.value;
+  document.getElementById('speedVal').textContent = speed.toFixed(1) + ' rad/s';
+});
+
+/* ==================== 动画主循环 ==================== */
+function frame(ts) {
+  const dt = (ts - lastTs) / 1000;
+  lastTs = ts;
+  if (running) {
+    theta += speed * dt;
+    if (theta >= TWO_PI) theta -= TWO_PI;
+  }
+  updateInfo();
+  drawCircle();
+  drawGraph();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
